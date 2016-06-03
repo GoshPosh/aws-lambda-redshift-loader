@@ -26,9 +26,6 @@ var setRegion;
 dynamoConfig = {
 	TableName : configTable,
 	Item : {
-		truncateTarget : {
-			BOOL : false
-		},
 		currentBatch : {
 			S : uuid.v4()
 		},
@@ -124,6 +121,15 @@ q_clusterPort = function(callback) {
 		dynamoConfig.Item.loadClusters.L[0].M.clusterPort = {
 			N : '' + common.getIntValue(answer, rl)
 		};
+		callback(null);
+	});
+};
+
+q_clusterUseSSL = function(callback) {
+	rl.question('Does your cluster use SSL (Y/N)  > ', function(answer) {
+        dynamoConfig.Item.loadClusters.L[0].M.useSSL = {
+            BOOL : common.getBooleanValue(answer)
+        };
 		callback(null);
 	});
 };
@@ -434,6 +440,7 @@ qs.push(q_s3Prefix);
 qs.push(q_filenameFilter);
 qs.push(q_clusterEndpoint);
 qs.push(q_clusterPort);
+qs.push(q_clusterUseSSL);
 qs.push(q_clusterDB);
 qs.push(q_table);
 qs.push(q_columnList);

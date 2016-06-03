@@ -53,29 +53,12 @@ cd aws-lambda-redshift-loader
 npm install
 ```
 
-## Getting Started - Preparing your Amazon Redshift Clusters
-In order to load a cluster, we'll have to enable AWS Lambda to connect. To do 
-this, we must enable Cluster Security Groups to allow access from the public 
-internet.
-
-To configure a cluster security group for access:
-
-1.	Log in to the Amazon Redshift console.
-2.	Select Security in the navigation pane on the left.
-3.	Choose the cluster security group in which your cluster is configured.
-4.	Add a new Connection Type of CIDR/IP and enter the value 0.0.0.0/0.
-5.	Select Authorize to save your changes.
-
-We recommend granting Amazon Redshift users only INSERT rights on tables to be 
-loaded. Create a user with a complex password using the CREATE USER command 
-(http://docs.aws.amazon.com/redshift/latest/dg/r_CREATE_USER.html), and grant 
-INSERT using GRANT (http://docs.aws.amazon.com/redshift/latest/dg/r_GRANT.html). 
-
 ## Getting Started - Deploying the AWS Lambda Function
 To deploy the function:
 
 1.	Go to the AWS Lambda Console in the same region as your S3 bucket and Amazon Redshift cluster.
 2.	Select Create a Lambda function and enter the name MyLambdaDBLoader (for example).
+3. Select the Runtime value as 'Node 0.10'
 3.	Under Code entry type select 'Upload a zip file' and upload the [AWSLambdaRedshiftLoader-2.2.0.zip](https://github.com/awslabs/aws-lambda-redshift-loader/blob/master/dist/AWSLambdaRedshiftLoader-2.2.0.zip) from your local ```dist``` folder
 4.	Use the default values of index.js for the filename and handler for the handler, and follow the wizard for creating the AWS Lambda Execution Role (required permissions below).  We also recommend using the max timeout for the function to accomodate long COPY times.
 5.	On the deployed function, select Configure Event Source and select the bucket you want to use for input data. Ensure that you have selected 'Object Created' or the 'ObjectCreated:*' notification type.
@@ -143,6 +126,52 @@ credentials to Redshift for the COPY command:
 }
 ```
 
+## Getting Started - Granting AWS Lambda rights to access your Redshift cluster
+
+### Redshift running in VPC
+
+This is the recommended model for all customers, and the only option for accounts recently created. In this model, your Redshift cluster is in a VPC Subnet, and we recommend using [AWS Lambda VPC Endpoints](http://docs.aws.amazon.com/lambda/latest/dg/vpc.html) to manage access to your cluster. A logical architecture diagram is below:
+
+![VPC Connectivity](VPCConnectivity.png)
+
+In this architecture, you expose your AWS Lambda function into your VPC subnets, and then select a security group for your Lambda function. You then grant access from your Redshift VPC Security Group to this Lambda VPC Security Group. However, because the Lambda Loader configuration is managed through DynamoDB, your Lambda function must also have internet egress enabled, and the easiest way to do this is to use [VPC NAT Gateway](http://docs.aws.amazon.com/AmazonVPC/latest/UserGuide/vpc-nat-gateway.html). The following steps should be undertaken:
+
+_AWS Lambda_
+
+* Create a new VPC security group for your AWS Lambda function, which typically includes output access to anything (0.0.0.0/0 ALLOW)
+* Go into your Lambda function configuration, and select 'Advanced settings'. Then select the VPC where your Redshift cluster resides. Then select the Subnets where you want your Lambda function to egress for VPC connectivity. In the diagram above we show it being able to egress into the same subnet as your Redshift Cluster, but this is not a hard requirement
+
+_Please note that AWS Lambda functions that want to route to the internet or public AWS Services should be in 'private' subnets, and not be placed into Subnets with existing routing rules for 0.0.0.0/0 traffic to an Internet Gateway_
+
+_Redshift_
+
+* Go into your Redshift Cluster, and select the VPC Security Groups entry that you want to use for enabling Lambda Access
+* Add a new Inbound Rule, Type = Redshift, Source = Custom IP, Port = the port for your cluster, and Destination set to the name of the Lambda Security Group created above.
+
+At this point, your lambda function should be able to connect to your Redshift cluster, but would not be able to determine which clusters to connect to when it receives an S3 event. So we need to enable your Lambda function to connect to DynamoDB
+
+_VPC_
+
+* Create a NAT Gateway in your VPC, that is available from the Subnets where your AWS Lambda function egress into your VPC
+* For the Subnets where AWS Lambda can execute, add a routing rule to the Route Table for 0.0.0.0/0 Outbound to route via your NAT Gateway
+
+### Redshift running in EC2 Classic/Not in VPC
+
+To grant AWS Lambda access to our cluster, we must enable Cluster Security Groups to allow access from the public internet.
+
+To configure a cluster security group for access:
+
+1.	Log in to the Amazon Redshift console.
+2.	Select Security in the navigation pane on the left.
+3.	Choose the cluster security group in which your cluster is configured.
+4.	Add a new Connection Type of CIDR/IP and enter the value 0.0.0.0/0.
+5.	Select Authorize to save your changes.
+
+We recommend granting Amazon Redshift users only INSERT rights on tables to be 
+loaded. Create a user with a complex password using the CREATE USER command 
+(http://docs.aws.amazon.com/redshift/latest/dg/r_CREATE_USER.html), and grant 
+INSERT using GRANT (http://docs.aws.amazon.com/redshift/latest/dg/r_GRANT.html). 
+
 ## Getting Started - Support for Notifications & Complex Workflows
 This function can send notifications on completion of batch processing. Using SNS, 
 you can then receive notifications through email and HTTP Push to an application, 
@@ -155,7 +184,7 @@ form of Amazon Resource Notations (ARN).
 ## Getting Started - Entering the Configuration
 Now that your function is deployed, we need to create a configuration which tells 
 it how and if files should be loaded from S3. Simply install AWS SDK for Javascript 
-and configure it with credentials as outlined at http://docs.aws.amazon.com/AWSJavaScriptSDK/guide/node-intro.html and http://docs.aws.amazon.com/AWSJavaScriptSDK/guide/node-configuring.html. You'll also need a local instance of Node.js - today the included Client Tools such as `setup.js` only run under pre-ES6 versions of Node (0.10 and 0.12 have been tested). NVM (https://github.com/creationix/nvm/blob/master/README.markdown) is a simple way to install and switch betweeb node versions. Then install dependencies using the following command:
+and configure it with credentials as outlined at http://docs.aws.amazon.com/AWSJavaScriptSDK/guide/node-intro.html and http://docs.aws.amazon.com/AWSJavaScriptSDK/guide/node-configuring.html. You'll also need a local instance of Node.js - today the included Client Tools such as `setup.js` only run under pre-ES6 versions of Node (0.10 and 0.12 have been tested). NVM (https://github.com/creationix/nvm/blob/master/README.markdown) is a simple way to install and switch between node versions. Then install dependencies using the following command:
 
 `cd aws-lambda-redshift-loader && npm install`
 
@@ -343,10 +372,10 @@ to update the Dynamo DB Configuration.
 
 ## Ensuring Loads happen every N minutes
 If you have a prefix that doesn't receive files very often, and want to ensure 
-that files are loaded every N minutes, use the following process to force periodic loads. 
+that files are loaded every N seconds, use the following process to force periodic loads. 
 
-When you create the configuration, add a filenameFilterRegex such as '.*\.csv', which 
-only loads CSV files that are put into the specified S3 prefix. Then every N minutes, 
+When you create the configuration, specify a `batchTimeoutSecs` and add a filenameFilterRegex such as '.*\.csv' (which 
+only loads CSV files that are put into the specified S3 prefix). Then every N seconds, 
 schedule one of the included trigger file generators to run:
 
 ### Using Scheduled Lambda Functions
@@ -371,9 +400,9 @@ You can use a Python based script to generate trigger files to specific input bu
 * input prefix - the prefix which is configured as an input location
 * local working directory - the location where the stub dummy file will be kept prior to upload into S3
 
-This writes a file called 'lambda-redshift-trigger-file.dummy' to the configured 
+These methods write a file called 'lambda-redshift-trigger-file.dummy' to the configured 
 input prefix, which causes your deployed function to scan the open pending batch 
-and load the contents if the timeout seconds limit has been reached.
+and load the contents if the timeout seconds limit has been reached. The batch timeout is calculated on the basis of when the first file was added to the batch.
 
 ## Reviewing Logs
 For normal operation, you won't have to do anything from an administration perspective. 
@@ -421,6 +450,7 @@ Enter the Database Name | Y | The database name in which the target table reside
 Enter the Database Username | Y | The username which should be used to connect to perform the COPY. Please note that only table owners can perform COPY, so this should be the schema in which the target table resides.
 Enter the Database Password | Y | The password for the database user. Will be encrypted before storage in Dynamo DB.
 Enter the Table to be Loaded | Y | The Table Name to be loaded with the input data.
+Enter the comma-delimited column list | N | If you want to control the order of columns that are found in a CSV file, then list the columns here. Please see [Column List Syntax](http://docs.aws.amazon.com/redshift/latest/dg/copy-parameters-column-mapping.html#copy-column-list) for more information
 Should the Table be Truncated before Load? (Y/N) | N | Option to truncate the table prior to loading. Use this option if you will subsequently process the input patch and only want to see 'new' data with this ELT process.
 Enter the Data Format (CSV, JSON or AVRO) | Y | Whether the data format is Character Separated Values, AVRO or JSON data (http://docs.aws.amazon.com/redshift/latest/dg/copy-usage_notes-copy-from-json.html).
 If CSV, Enter the CSV Delimiter | Yes if Data Format = CSV | Single character delimiter value, such as ',' (comma) or '|' (pipe).
